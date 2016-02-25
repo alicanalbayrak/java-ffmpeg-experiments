@@ -46,9 +46,9 @@ import static org.bytedeco.javacpp.avutil.av_rescale_q_rnd;
 public class Remuxer {
 
     // input-output file
-    public static final String INPUT_FILENAME = "rtsp://10.0.2.26:554/live.sdp";
+    public static final String in_filename = "";
 
-    public static final String OUTPUT_FILENAME = "/home/alicana/Videos/cape_copy_6.mp4";
+    public static final String out_filename = "";
 
     // ====================== Load ffmpeg libraries ======================
 
@@ -82,9 +82,6 @@ public class Remuxer {
 	AVFormatContext ofmt_ctx = new AVFormatContext(null);
 	AVPacket pkt = new AVPacket();
 	int ret, i;
-
-	String in_filename = "rtsp://10.0.2.26:554/live.sdp";
-	String out_filename = "/home/alicana/Videos/cape_copy_6.mp4";
 
 	AVInputFormat f = new AVInputFormat(null);
 	AVDictionary options = new AVDictionary(null);
