@@ -1,24 +1,65 @@
 package org.gilmour.ffmpeg.examples;
 
 import org.bytedeco.javacpp.PointerPointer;
-import org.bytedeco.javacpp.avcodec;
 import org.gilmour.ffmpeg.util.FFmpegLibLoader;
 
-import static org.bytedeco.javacpp.avcodec.*;
-import static org.bytedeco.javacpp.avformat.*;
-import static org.bytedeco.javacpp.avutil.*;
+import static org.bytedeco.javacpp.avcodec.AVCodec;
+import static org.bytedeco.javacpp.avcodec.AVPacket;
+import static org.bytedeco.javacpp.avcodec.CODEC_FLAG_GLOBAL_HEADER;
+import static org.bytedeco.javacpp.avcodec.av_free_packet;
+import static org.bytedeco.javacpp.avcodec.avcodec_copy_context;
+import static org.bytedeco.javacpp.avcodec.avcodec_find_decoder;
+import static org.bytedeco.javacpp.avcodec.avcodec_open2;
+import static org.bytedeco.javacpp.avformat.AVFMT_GLOBALHEADER;
+import static org.bytedeco.javacpp.avformat.AVFMT_NOFILE;
+import static org.bytedeco.javacpp.avformat.AVFormatContext;
+import static org.bytedeco.javacpp.avformat.AVIOContext;
+import static org.bytedeco.javacpp.avformat.AVIO_FLAG_WRITE;
+import static org.bytedeco.javacpp.avformat.AVInputFormat;
+import static org.bytedeco.javacpp.avformat.AVOutputFormat;
+import static org.bytedeco.javacpp.avformat.AVStream;
+import static org.bytedeco.javacpp.avformat.av_dump_format;
+import static org.bytedeco.javacpp.avformat.av_read_frame;
+import static org.bytedeco.javacpp.avformat.av_write_frame;
+import static org.bytedeco.javacpp.avformat.av_write_trailer;
+import static org.bytedeco.javacpp.avformat.avformat_alloc_output_context2;
+import static org.bytedeco.javacpp.avformat.avformat_close_input;
+import static org.bytedeco.javacpp.avformat.avformat_find_stream_info;
+import static org.bytedeco.javacpp.avformat.avformat_free_context;
+import static org.bytedeco.javacpp.avformat.avformat_new_stream;
+import static org.bytedeco.javacpp.avformat.avformat_open_input;
+import static org.bytedeco.javacpp.avformat.avformat_write_header;
+import static org.bytedeco.javacpp.avformat.avio_close;
+import static org.bytedeco.javacpp.avformat.avio_open;
+import static org.bytedeco.javacpp.avutil.AVDictionary;
+import static org.bytedeco.javacpp.avutil.AVERROR_EOF;
+import static org.bytedeco.javacpp.avutil.AVERROR_UNKNOWN;
+import static org.bytedeco.javacpp.avutil.AVMEDIA_TYPE_AUDIO;
+import static org.bytedeco.javacpp.avutil.AVMEDIA_TYPE_VIDEO;
+import static org.bytedeco.javacpp.avutil.AV_NOPTS_VALUE;
+import static org.bytedeco.javacpp.avutil.av_dict_free;
+import static org.bytedeco.javacpp.avutil.av_dict_set;
+import static org.bytedeco.javacpp.avutil.av_free;
+import static org.bytedeco.javacpp.avutil.av_rescale_q;
 
 /**
  * Created by gilmour on 24.02.2016.
  *
  * @see <a href="https://ffmpeg.org/doxygen/trunk/doc_2examples_2remuxing_8c-example.html">remuxing.c</a>
+ * <p/>
+ * <p/>
+ * <p/>
+ * This class basically, (demux) reads a media file and split it into chunks of data, then, (mux) takes encoded data int the form of AVPackets
+ * and writes into files or other output bytestreams in the specified container format.
+ * <p/>
+ * (from <a href="https://ffmpeg.org/doxygen/2.8/group__libavf.html">I/O and Muxing/Demuxing Library</a>)
  */
 public class Remuxer {
 
     // input-output file
-    public static final String in_filename = "/home/alicana/Videos/HD-720p.mp4";
+    //    public static final String in_filename = "/home/alicana/Videos/HD-720p.mp4";
 
-    public static final String out_filename = "/home/alicana/Videos/HD-720p_copy.mp4";
+    //    public static final String out_filename = "/home/alicana/Videos/HD-720p_copy.mp4";
 
     // ====================== Load ffmpeg libraries ======================
 
@@ -43,16 +84,28 @@ public class Remuxer {
 	}
     }
 
-    // ====================== Main ======================
+    // ====================== Variables ======================
 
-    public static void main(String[] args) throws Exception {
+    private AVOutputFormat ofmt = null;
 
-	AVOutputFormat ofmt = null;
-	AVFormatContext ifmt_ctx = new AVFormatContext(null);
-	AVFormatContext ofmt_ctx = new AVFormatContext(null);
-	AVPacket pkt = new AVPacket();
-	int ret;
+    private AVFormatContext ifmt_ctx = null;
 
+    private AVFormatContext ofmt_ctx = null;
+
+    private AVPacket pkt = new AVPacket();
+
+    private int ret;
+
+    int vid_st_idx = -1, aud_st_idx = -1;
+
+    // ====================== Initiate ======================
+
+    public void openMedia(String in_filename) throws Exception {
+
+	ifmt_ctx = new AVFormatContext(null);
+
+	// Open an input stream and read the header
+	// TODO The stream must be closed with avformat_close_input().
 	AVInputFormat f = new AVInputFormat(null);
 	AVDictionary options = new AVDictionary(null);
 	if ((ret = avformat_open_input(ifmt_ctx, in_filename, f, options)) < 0) {
@@ -64,25 +117,16 @@ public class Remuxer {
 
 	av_dict_free(options);
 
+	// Read packets of a media file to get stream information
 	if ((ret = avformat_find_stream_info(ifmt_ctx, (PointerPointer) null)) < 0) {
 	    throw new Exception("Failed to retrieve input stream information");
 	}
 
+	// Print detailed information about the format
 	av_dump_format(ifmt_ctx, 0, in_filename, 0);
 
-	if (avformat_alloc_output_context2(ofmt_ctx, null, "mp4", out_filename) < 0) {
-	    ret = AVERROR_UNKNOWN;
-	    throw new Exception("Could not create output context\n");
-	}
-
-	ofmt = ofmt_ctx.oformat();
-	ofmt_ctx.filename().putString(out_filename);
-
-	int vid_st_idx = -1, aud_st_idx = -1;
 	for (int i = 0; i < ifmt_ctx.nb_streams(); i++) {
-
 	    AVStream in_stream = ifmt_ctx.streams(i);
-
 	    if (vid_st_idx == -1 && in_stream.codec().codec_type() == AVMEDIA_TYPE_VIDEO) {
 
 		vid_st_idx = i;
@@ -92,8 +136,25 @@ public class Remuxer {
 		aud_st_idx = i;
 
 	    }
-
 	}
+
+    }
+
+    public void initOutput(String out_filename, String outputFormat) throws Exception {
+
+	ofmt = null;
+
+	ofmt_ctx = new AVFormatContext(null);
+
+	// Allocate an AVFormatContext for an output format.
+	// TODO avformat_free_context() can be used to free the context and everything allocated by the framework within it.
+	if (avformat_alloc_output_context2(ofmt_ctx, null, outputFormat, out_filename) < 0) {
+	    ret = AVERROR_UNKNOWN;
+	    throw new Exception("Could not create output context\n");
+	}
+
+	ofmt = ofmt_ctx.oformat();
+	ofmt_ctx.filename().putString(out_filename);
 
 	if (vid_st_idx != -1 && ifmt_ctx.streams(vid_st_idx).codec().codec_type() == AVMEDIA_TYPE_VIDEO) {
 
@@ -104,7 +165,7 @@ public class Remuxer {
 						+ ".");
 	    }
 
-	    options = new AVDictionary(null);
+	    AVDictionary options = new AVDictionary(null);
 
 	    // Open video codec
 	    if ((ret = avcodec_open2(ifmt_ctx.streams(vid_st_idx).codec(), codec, options)) < 0) {
@@ -129,16 +190,6 @@ public class Remuxer {
 		throw new Exception("Failed to copy context from input to output stream codec context\n");
 	    }
 
-	    //		if (ifmt_ctx.duration() == AV_NOPTS_VALUE) {
-	    //		    if (in_stream.duration() != AV_NOPTS_VALUE) {
-	    //			//m_in_end_time = (ifmt_ctx->streams[m_in_vid_strm_idx]->duration)/(AV_TIME_BASE);
-	    //			//			m_in_end_time = (in_stream.duration()) / (in_stream.time_base().den() / in_stream.time_base().num());
-	    //		    }
-	    //
-	    //		} else {
-	    //		    //		    m_in_end_time = (ifmt_ctx->duration)/(AV_TIME_BASE);
-	    //		}
-
 	    int m_fps = 25; // default value
 
 	    if (ifmt_ctx.streams(vid_st_idx).r_frame_rate().num() != AV_NOPTS_VALUE && ifmt_ctx.streams(vid_st_idx).r_frame_rate().den() != 0) {
@@ -146,15 +197,13 @@ public class Remuxer {
 	    }
 
 	    out_stream.codec().codec_id(ifmt_ctx.streams(vid_st_idx).codec().codec_id());
-	    out_stream.codec().codec_tag(ifmt_ctx.streams(vid_st_idx).codec().codec_tag());
+	    //	    out_stream.codec().codec_tag(ifmt_ctx.streams(vid_st_idx).codec().codec_tag());
+	    out_stream.codec().codec_tag(0);
 
 	    out_stream.sample_aspect_ratio().den(out_stream.codec().sample_aspect_ratio().den());
 	    out_stream.sample_aspect_ratio().num(ifmt_ctx.streams(vid_st_idx).codec().sample_aspect_ratio().num());
 	    out_stream.codec().time_base().num(1);
 	    out_stream.codec().time_base().den(m_fps * (ifmt_ctx.streams(vid_st_idx).codec().ticks_per_frame()));
-
-	    //	    out_stream.codec().width(640);
-	    //	    out_stream.codec().height(360);
 
 	    out_stream.time_base().num(1);
 	    out_stream.time_base().den(1000);
@@ -162,15 +211,10 @@ public class Remuxer {
 	    out_stream.r_frame_rate().den(1);
 	    out_stream.avg_frame_rate().den(1);
 	    out_stream.avg_frame_rate().num(m_fps);
-	    //		out_stream.duration() = (m_out_end_time - m_out_start_time)*1000;
 
 	    if ((ofmt_ctx.oformat().flags() & AVFMT_GLOBALHEADER) != 0) {
 		out_stream.codec().flags(out_stream.codec().flags() | CODEC_FLAG_GLOBAL_HEADER);
 	    }
-
-	    //	    if ((video_codec.capabilities() & CODEC_CAP_EXPERIMENTAL) != 0) {
-	    //		video_c.strict_std_compliance(AVCodecContext.FF_COMPLIANCE_EXPERIMENTAL);
-	    //	    }
 
 	}
 
@@ -178,8 +222,10 @@ public class Remuxer {
 	    // TODO
 	}
 
+	// Print detailed information about the format
 	av_dump_format(ofmt_ctx, 0, out_filename, 1);
 
+	// Create and initialize a AVIOContext for accessing the resource indicated by url.
 	if ((ofmt.flags() & AVFMT_NOFILE) == 0) {
 	    AVIOContext pb = new AVIOContext(null);
 	    ret = avio_open(pb, out_filename, AVIO_FLAG_WRITE);
@@ -195,58 +241,126 @@ public class Remuxer {
 	    throw new Exception("Error occurred when opening output file\n");
 	}
 	av_dict_free(out_opts);
+    }
 
-	long t1 = System.currentTimeMillis();
-	while (true) {
-	    AVStream in_stream, out_stream;
+    public int recordAVPacket() throws Exception {
 
-	    //	    	    if ((System.currentTimeMillis() - t1) > 5000)
-	    //			break;
+	AVStream in_stream, out_stream;
 
-	    ret = av_read_frame(ifmt_ctx, pkt);
-	    if (ret < 0)
-		break;
+	// Return the next frame of a stream.
+	if ((ret = av_read_frame(ifmt_ctx, pkt)) < 0) {
+	    return ret;
+	}
 
-	    in_stream = ifmt_ctx.streams(pkt.stream_index());
-	    out_stream = ofmt_ctx.streams(pkt.stream_index());
+	in_stream = ifmt_ctx.streams(pkt.stream_index());
+	out_stream = ofmt_ctx.streams(pkt.stream_index());
 
-	    if (in_stream.codec().codec_type() == AVMEDIA_TYPE_VIDEO) {
+	if (ofmt_ctx.streams(vid_st_idx) == null) {
+	    throw new Exception("No video output stream");
+	}
 
-	        /* copy packet */
-//		pkt.pts(av_rescale_q_rnd(pkt.pts(), in_stream.codec().time_base(), out_stream.codec().time_base(), AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX));
-//		pkt.dts(av_rescale_q_rnd(pkt.dts(), in_stream.codec().time_base(), out_stream.codec().time_base(), AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX));
+	if (in_stream.codec().codec_type() == AVMEDIA_TYPE_VIDEO) {
 
-		pkt.dts(AV_NOPTS_VALUE);
-		pkt.pts(AV_NOPTS_VALUE);
+	    /* copy packet */
+	    // pkt.pts(av_rescale_q_rnd(pkt.pts(), in_stream.codec().time_base(), out_stream.codec().time_base(), AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX));
+	    // pkt.dts(av_rescale_q_rnd(pkt.dts(), in_stream.codec().time_base(), out_stream.codec().time_base(), AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX));
 
-		pkt.duration((int) av_rescale_q(pkt.duration(), in_stream.codec().time_base(), out_stream.codec().time_base()));
-		pkt.pos(-1);
+	    pkt.dts(AV_NOPTS_VALUE);
+	    pkt.pts(AV_NOPTS_VALUE);
 
+	    pkt.duration((int) av_rescale_q(pkt.duration(), in_stream.codec().time_base(), out_stream.codec().time_base()));
+	    pkt.pos(-1);
+
+	    synchronized (ofmt_ctx) {
 		ret = av_write_frame(ofmt_ctx, pkt);
 		if (ret < 0) {
 		    throw new Exception("Error muxing packet\n");
 		}
-		av_free_packet(pkt);
-
 	    }
+
+	    av_free_packet(pkt);
+
 	}
 
-	av_write_trailer(ofmt_ctx);
+	return 0;
+    }
 
-	avformat_close_input(ifmt_ctx);
+    public void stop() throws Exception {
 
-    /* close output */
+	if (ofmt_ctx != null) {
+	    av_write_frame(ofmt_ctx, null);
+
+	    // Write the stream trailer to an output media file and free the file private data.
+	    av_write_trailer(ofmt_ctx);
+	}
+
+	// close input
+	if (ifmt_ctx != null && !ifmt_ctx.isNull()) {
+	    // Close an opened input AVFormatContext.
+	    // Free it and all its contents and set *s to NULL.
+	    avformat_close_input(ifmt_ctx);
+	    ifmt_ctx = null;
+	}
+
+	// close output
 	if (!ofmt_ctx.isNull()) {
 	    if ((ofmt_ctx.oformat().flags() & AVFMT_NOFILE) == 0) {
 		/* close the output file */
 		avio_close(ofmt_ctx.pb());
 	    }
+
+	    /* free the streams */
+	    int nb_streams = ofmt_ctx.nb_streams();
+	    for (int i = 0; i < nb_streams; i++) {
+		av_free(ofmt_ctx.streams(i).codec());
+		av_free(ofmt_ctx.streams(i));
+	    }
+
+            /* free metadata */
+	    if (ofmt_ctx.metadata() != null) {
+		av_dict_free(ofmt_ctx.metadata());
+		ofmt_ctx.metadata(null);
+	    }
+
+            /* free the stream */
+	    av_free(ofmt_ctx);
+	    ofmt_ctx = null;
+
 	}
+
 	avformat_free_context(ofmt_ctx);
 
 	if (ret < 0 && ret != AVERROR_EOF) {
 	    throw new Exception("Error occurred: %s\n");
 	}
+
+    }
+
+    public void release() {
+
+	synchronized (org.bytedeco.javacpp.avcodec.class) {
+
+	}
+    }
+
+    @Override
+    protected void finalize() throws Throwable {
+
+	super.finalize();
+	release();
+    }
+
+    // ====================== Main ======================
+
+    public static void main(String[] args) throws Exception {
+
+	Remuxer rmx = new Remuxer();
+
+	rmx.openMedia("/home/alicana/Videos/demo_videos/SampleVideo_640x360_10mb.mp4");
+	rmx.initOutput("/home/alicana/Videos/records/copy_1_1.mp4", "mp4");
+	while (rmx.recordAVPacket() == 0)
+	    ;
+	rmx.stop();
 
     }
 
