@@ -8,7 +8,7 @@ import static org.bytedeco.javacpp.avcodec.AVPacket;
 import static org.bytedeco.javacpp.avcodec.CODEC_FLAG_GLOBAL_HEADER;
 import static org.bytedeco.javacpp.avcodec.av_free_packet;
 import static org.bytedeco.javacpp.avcodec.avcodec_copy_context;
-import static org.bytedeco.javacpp.avcodec.avcodec_find_decoder;
+import static org.bytedeco.javacpp.avcodec.avcodec_find_encoder;
 import static org.bytedeco.javacpp.avcodec.avcodec_open2;
 import static org.bytedeco.javacpp.avformat.AVFMT_GLOBALHEADER;
 import static org.bytedeco.javacpp.avformat.AVFMT_NOFILE;
@@ -19,6 +19,7 @@ import static org.bytedeco.javacpp.avformat.AVInputFormat;
 import static org.bytedeco.javacpp.avformat.AVOutputFormat;
 import static org.bytedeco.javacpp.avformat.AVStream;
 import static org.bytedeco.javacpp.avformat.av_dump_format;
+import static org.bytedeco.javacpp.avformat.av_interleaved_write_frame;
 import static org.bytedeco.javacpp.avformat.av_read_frame;
 import static org.bytedeco.javacpp.avformat.av_write_frame;
 import static org.bytedeco.javacpp.avformat.av_write_trailer;
@@ -119,7 +120,7 @@ public class Remuxer {
 
 	// Read packets of a media file to get stream information
 	if ((ret = avformat_find_stream_info(ifmt_ctx, (PointerPointer) null)) < 0) {
-	    throw new Exception("Failed to retrieve input stream information");
+	    throw new Exception("avformat_find_stream_info() error:\tFailed to retrieve input stream information");
 	}
 
 	// Print detailed information about the format
@@ -150,7 +151,7 @@ public class Remuxer {
 	// TODO avformat_free_context() can be used to free the context and everything allocated by the framework within it.
 	if (avformat_alloc_output_context2(ofmt_ctx, null, outputFormat, out_filename) < 0) {
 	    ret = AVERROR_UNKNOWN;
-	    throw new Exception("Could not create output context\n");
+	    throw new Exception("avformat_alloc_output_context2() error:\tCould not create output context\n");
 	}
 
 	ofmt = ofmt_ctx.oformat();
@@ -158,10 +159,10 @@ public class Remuxer {
 
 	if (vid_st_idx != -1 && ifmt_ctx.streams(vid_st_idx).codec().codec_type() == AVMEDIA_TYPE_VIDEO) {
 
-	    AVCodec codec = avcodec_find_decoder(ifmt_ctx.streams(vid_st_idx).codec().codec_id());
+	    AVCodec codec = avcodec_find_encoder(ifmt_ctx.streams(vid_st_idx).codec().codec_id());
 	    if (codec == null) {
 		throw new Exception(
-				"avcodec_find_decoder() error: Unsupported video format or codec not found: " + ifmt_ctx.streams(vid_st_idx).codec().codec_id()
+				"avcodec_find_decoder() error:\tUnsupported video format or codec not found: " + ifmt_ctx.streams(vid_st_idx).codec().codec_id()
 						+ ".");
 	    }
 
@@ -169,7 +170,7 @@ public class Remuxer {
 
 	    // Open video codec
 	    if ((ret = avcodec_open2(ifmt_ctx.streams(vid_st_idx).codec(), codec, options)) < 0) {
-		throw new Exception("avcodec_open2() error " + ret + ": Could not open video codec.");
+		throw new Exception("avcodec_open2() error:\t" + ret + ": Could not open video codec.");
 	    }
 	    av_dict_free(options);
 
@@ -182,12 +183,12 @@ public class Remuxer {
 
 	    if (out_stream == null) {
 		ret = AVERROR_UNKNOWN;
-		throw new Exception("Failed allocating output stream\n");
+		throw new Exception("avformat_new_stream() error:\tFailed allocating output video stream\n");
 	    }
 
 	    ret = avcodec_copy_context(out_stream.codec(), ifmt_ctx.streams(vid_st_idx).codec());
 	    if (ret < 0) {
-		throw new Exception("Failed to copy context from input to output stream codec context\n");
+		throw new Exception("avcodec_copy_context() error:\tFailed to copy context from input video to output video stream codec context\n");
 	    }
 
 	    int m_fps = 25; // default value
@@ -197,7 +198,7 @@ public class Remuxer {
 	    }
 
 	    out_stream.codec().codec_id(ifmt_ctx.streams(vid_st_idx).codec().codec_id());
-	    //	    out_stream.codec().codec_tag(ifmt_ctx.streams(vid_st_idx).codec().codec_tag());
+	    //	    	    out_stream.codec().codec_tag(ifmt_ctx.streams(vid_st_idx).codec().codec_tag());
 	    out_stream.codec().codec_tag(0);
 
 	    out_stream.sample_aspect_ratio().den(out_stream.codec().sample_aspect_ratio().den());
@@ -219,7 +220,34 @@ public class Remuxer {
 	}
 
 	if (aud_st_idx != -1 && ifmt_ctx.streams(aud_st_idx).codec().codec_type() == AVMEDIA_TYPE_AUDIO) {
-	    // TODO
+
+	    AVCodec aud_codec = avcodec_find_encoder(ifmt_ctx.streams(aud_st_idx).codec().codec_id());
+
+	    if (aud_codec == null) {
+		throw new Exception(
+				"avcodec_find_decoder() error:\tUnsupported audio format or codec not found: " + ifmt_ctx.streams(aud_st_idx).codec().codec_id()
+						+ ".");
+	    }
+
+	    AVStream out_aud_stream = avformat_new_stream(ofmt_ctx, ifmt_ctx.streams(aud_st_idx).codec().codec());
+
+	    if (out_aud_stream == null) {
+		ret = AVERROR_UNKNOWN;
+		throw new Exception("avformat_new_stream() error:\tFailed allocating output audio stream\n");
+	    }
+
+	    ret = avcodec_copy_context(out_aud_stream.codec(), ifmt_ctx.streams(aud_st_idx).codec());
+	    if (ret < 0) {
+		throw new Exception("avcodec_copy_context() error:\tFailed to copy context from input audio to output audio stream codec context\n");
+	    }
+
+	    out_aud_stream.codec().codec_id(ifmt_ctx.streams(aud_st_idx).codec().codec_id());
+	    out_aud_stream.codec().codec_tag(0);
+	    out_aud_stream.pts(ifmt_ctx.streams(aud_st_idx).pts());
+	    out_aud_stream.duration(ifmt_ctx.streams(aud_st_idx).duration());
+	    out_aud_stream.time_base().num(ifmt_ctx.streams(aud_st_idx).time_base().num());
+	    out_aud_stream.time_base().den(ifmt_ctx.streams(aud_st_idx).time_base().den());
+
 	}
 
 	// Print detailed information about the format
@@ -230,7 +258,7 @@ public class Remuxer {
 	    AVIOContext pb = new AVIOContext(null);
 	    ret = avio_open(pb, out_filename, AVIO_FLAG_WRITE);
 	    if (ret < 0) {
-		throw new Exception("Could not open output file '%s'" + out_filename);
+		throw new Exception("avio_open() error:\tCould not open output file '%s'" + out_filename);
 	    }
 	    ofmt_ctx.pb(pb);
 	}
@@ -238,7 +266,7 @@ public class Remuxer {
 	AVDictionary out_opts = new AVDictionary(null);
 	ret = avformat_write_header(ofmt_ctx, out_opts);
 	if (ret < 0) {
-	    throw new Exception("Error occurred when opening output file\n");
+	    throw new Exception("avformat_write_header() error:\tError occurred when opening output file\n");
 	}
 	av_dict_free(out_opts);
     }
@@ -259,11 +287,11 @@ public class Remuxer {
 	    throw new Exception("No video output stream");
 	}
 
-	if (in_stream.codec().codec_type() == AVMEDIA_TYPE_VIDEO) {
+	if (in_stream.codec().codec_type() == AVMEDIA_TYPE_VIDEO || in_stream.codec().codec_type() == AVMEDIA_TYPE_AUDIO) {
 
 	    /* copy packet */
-	    // pkt.pts(av_rescale_q_rnd(pkt.pts(), in_stream.codec().time_base(), out_stream.codec().time_base(), AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX));
-	    // pkt.dts(av_rescale_q_rnd(pkt.dts(), in_stream.codec().time_base(), out_stream.codec().time_base(), AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX));
+	    //	     pkt.pts(av_rescale_q_rnd(pkt.pts(), in_stream.codec().time_base(), out_stream.codec().time_base(), AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX));
+	    //	     pkt.dts(av_rescale_q_rnd(pkt.dts(), in_stream.codec().time_base(), out_stream.codec().time_base(), AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX));
 
 	    pkt.dts(AV_NOPTS_VALUE);
 	    pkt.pts(AV_NOPTS_VALUE);
@@ -272,9 +300,9 @@ public class Remuxer {
 	    pkt.pos(-1);
 
 	    synchronized (ofmt_ctx) {
-		ret = av_write_frame(ofmt_ctx, pkt);
+		ret = av_interleaved_write_frame(ofmt_ctx, pkt);
 		if (ret < 0) {
-		    throw new Exception("Error muxing packet\n");
+		    throw new Exception("av_write_frame() error:\tWhile muxing packet\n");
 		}
 	    }
 
@@ -355,9 +383,9 @@ public class Remuxer {
     public static void main(String[] args) throws Exception {
 
 	Remuxer rmx = new Remuxer();
-
+	
 	rmx.openMedia("/home/alicana/Videos/demo_videos/SampleVideo_640x360_10mb.mp4");
-	rmx.initOutput("/home/alicana/Videos/records/copy_1_1.mp4", "mp4");
+	rmx.initOutput("/home/alicana/Videos/records/copy_SampleVideo_640x360_10mb.mp4", "mp4");
 	while (rmx.recordAVPacket() == 0)
 	    ;
 	rmx.stop();
