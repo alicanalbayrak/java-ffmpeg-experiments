@@ -248,6 +248,10 @@ public class Remuxer {
 	    out_aud_stream.time_base().num(ifmt_ctx.streams(aud_st_idx).time_base().num());
 	    out_aud_stream.time_base().den(ifmt_ctx.streams(aud_st_idx).time_base().den());
 
+	    if ((ofmt_ctx.oformat().flags() & AVFMT_GLOBALHEADER) != 0) {
+		out_aud_stream.codec().flags(out_aud_stream.codec().flags() | CODEC_FLAG_GLOBAL_HEADER);
+	    }
+
 	}
 
 	// Print detailed information about the format
@@ -383,7 +387,7 @@ public class Remuxer {
     public static void main(String[] args) throws Exception {
 
 	Remuxer rmx = new Remuxer();
-	
+
 	rmx.openMedia("/home/alicana/Videos/demo_videos/SampleVideo_640x360_10mb.mp4");
 	rmx.initOutput("/home/alicana/Videos/records/copy_SampleVideo_640x360_10mb.mp4", "mp4");
 	while (rmx.recordAVPacket() == 0)
