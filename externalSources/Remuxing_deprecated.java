@@ -55,7 +55,7 @@ import static org.bytedeco.javacpp.avutil.av_rescale_q;
  * <p/>
  * (from <a href="https://ffmpeg.org/doxygen/2.8/group__libavf.html">I/O and Muxing/Demuxing Library</a>)
  */
-public class Remuxer {
+public class Remuxing_deprecated {
 
     // input-output file
     //    public static final String in_filename = "/home/alicana/Videos/HD-720p.mp4";
@@ -386,7 +386,7 @@ public class Remuxer {
 
     public static void main(String[] args) throws Exception {
 
-	Remuxer rmx = new Remuxer();
+	Remuxing_deprecated rmx = new Remuxing_deprecated();
 
 	rmx.openMedia("/home/alicana/Videos/demo_videos/SampleVideo_640x360_10mb.mp4");
 	rmx.initOutput("/home/alicana/Videos/records/copy_SampleVideo_640x360_10mb.mp4", "mp4");
