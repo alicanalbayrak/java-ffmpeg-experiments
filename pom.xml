@@ -34,16 +34,19 @@
 	</properties>
 
 	<dependencies>
-		<dependency>
-			<groupId>org.bytedeco</groupId>
-			<artifactId>javacpp</artifactId>
-			<version>1.1</version>
-		</dependency>
+		<!-- https://mvnrepository.com/artifact/org.bytedeco.javacpp-presets/ffmpeg -->
 		<dependency>
 			<groupId>org.bytedeco.javacpp-presets</groupId>
 			<artifactId>ffmpeg</artifactId>
-			<version>2.8.1-1.1</version>
+			<version>3.2.1-1.3</version>
 		</dependency>
+		<!-- https://mvnrepository.com/artifact/org.bytedeco.javacpp-presets/ffmpeg-platform -->
+		<dependency>
+			<groupId>org.bytedeco.javacpp-presets</groupId>
+			<artifactId>ffmpeg-platform</artifactId>
+			<version>3.2.1-1.3</version>
+		</dependency>
+
 	</dependencies>
 
 
